@@ -1,0 +1,28 @@
+# --- Python & Environments ---
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+
+# --- Environment & Sensitive Data ---
+.env
+env.sh
+*.pem
+*.key
+.secrets
+
+# --- macOS Specific ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# --- Project Specific ---
+.idea/
+.vscode/
+*.log
+src/service/__pycache__/
+
+data/

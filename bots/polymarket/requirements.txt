@@ -1,0 +1,4 @@
+python-dotenv
+py-clob-client
+web3
+eth-account

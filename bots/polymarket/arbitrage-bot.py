@@ -1,52 +1,106 @@
 import os
 import time
+import json
+import requests
 from dotenv import load_dotenv
-from eth_account import Account
-# Corrected import name
 from py_clob_client.client import ClobClient
 
 load_dotenv()
 
-def get_client():
-    pk = os.getenv("PRIVATE_KEY")
-    host = os.getenv("CLOB_API_URL")
-    chain_id = int(os.getenv("CHAIN_ID"))
-    
-    # Initialize client
-    client = ClobClient(host, key=pk, chain_id=chain_id)
-    
-    # Create or derive the API credentials (L2)
+def get_authenticated_client():
+    """Initializes the Polymarket CLOB client."""
+    client = ClobClient(
+        host=os.getenv("CLOB_API_URL"),
+        key=os.getenv("PRIVATE_KEY"),
+        chain_id=int(os.getenv("CHAIN_ID"))
+    )
+    # L2 credentials are required for price/order operations
     client.create_or_derive_api_creds()
     return client
 
-def run_arb_check(client, yes_id, no_id):
+def get_active_markets():
+    """Fetches active events and extracts Token IDs for Yes/No pairs."""
+    url = "https://gamma-api.polymarket.com/events"
+    params = {
+        "active": "true",
+        "closed": "false",
+        "limit": 15,
+        "order": "volume_24hr",
+        "ascending": "false"
+    }
+    
+    valid_markets = []
     try:
-        # Fetch current mid-market prices
-        yes_price = float(client.get_midpoint(yes_id))
-        no_price = float(client.get_midpoint(no_id))
+        response = requests.get(url, params=params)
+        events = response.json()
         
-        sum_price = yes_price + no_price
-        profit_margin = 1.0 - sum_price
-        
-        print(f"Yes: ${yes_price:.3f} | No: ${no_price:.3f} | Sum: ${sum_price:.3f}")
-        
-        target = float(os.getenv("MIN_PROFIT_MARGIN"))
-        if profit_margin >= target:
-            print(f"!!! ARBITRAGE FOUND: {profit_margin*100:.2f}% !!!")
-        else:
-            print("Scanning...")
-            
+        for event in events:
+            for market in event.get("markets", []):
+                # Gamma API often returns IDs as a stringified list like '["123", "456"]'
+                token_ids = market.get("clobTokenIds")
+                if isinstance(token_ids, str):
+                    token_ids = json.loads(token_ids)
+
+                if token_ids and len(token_ids) == 2:
+                    valid_markets.append({
+                        "question": market.get("groupItemTitle") or event.get("title"),
+                        "yes_id": token_ids[0],
+                        "no_id": token_ids[1]
+                    })
+        return valid_markets
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Discovery Error: {e}")
+        return []
+
+def scan_for_arbitrage(client, markets):
+    """Calculates Yes + No cost for a list of markets."""
+    print(f"\n--- Scanning {len(markets)} Tradable Markets ---")
+    threshold = float(os.getenv("MIN_PROFIT_MARGIN", 0.01))
+    
+    for m in markets:
+        try:
+            # We want the 'Ask' price (the price to BUY right now)
+            yes_data = client.get_price(m['yes_id'], side="BUY")
+            no_data = client.get_price(m['no_id'], side="BUY")
+            
+            yes_price = float(yes_data['price'])
+            no_price = float(no_data['price'])
+            
+            total_cost = yes_price + no_price
+            profit = 1.0 - total_cost
+
+            if total_cost < (1.0 - threshold):
+                print(f"✅ ARB FOUND: {m['question']}")
+                print(f"   Yes: {yes_price} | No: {no_price} | Sum: {total_cost:.3f}")
+                print(f"   Potential Profit: {profit*100:.2f}%")
+            else:
+                # Truncate title for clean logging
+                short_title = (m['question'][:45] + '..') if len(m['question']) > 45 else m['question']
+                print(f"❌ {total_cost:.3f} | {short_title}")
+
+        except Exception:
+            # Skip if a market has no active orders (404)
+            continue
 
 if __name__ == "__main__":
-    # You still need to find real Token IDs to put here
-    YES_TOKEN = "PASTE_YES_ID_HERE"
-    NO_TOKEN = "PASTE_NO_ID_HERE"
+    print("🚀 Starting Arbitrage Bot...")
+    try:
+        poly_client = get_authenticated_client()
+        
+        while True:
+            # 1. Discover Markets
+            active_list = get_active_markets()
+            
+            if active_list:
+                # 2. Scan Prices
+                scan_for_arbitrage(poly_client, active_list)
+            else:
+                print("Searching for active markets...")
 
-    poly_client = get_client()
-    print(f"Bot Active for Market: {YES_TOKEN}")
-    
-    while True:
-        run_arb_check(poly_client, YES_TOKEN, NO_TOKEN)
-        time.sleep(5)
+            # 3. Wait to avoid API rate limits
+            wait = int(os.getenv("SCAN_INTERVAL", 10))
+            print(f"\nSleeping {wait}s...")
+            time.sleep(wait)
+            
+    except KeyboardInterrupt:
+        print("\nBot stopped by user.")

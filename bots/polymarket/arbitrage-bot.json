@@ -1,6 +1,9 @@
 {
     "paused": false,
-    "min_profit_margin_override": null,
-    "max_trade_usdc_override": 1.2,
+    "paper_trading": true,
+    "scan_interval": 10,
+    "max_trades_allowed": 1,
+    "min_profit_margin": 0.01,
+    "max_trade_usdc": 1.2,
     "emergency_stop": false
 }

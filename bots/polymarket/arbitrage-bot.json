@@ -1,9 +1,10 @@
 {
     "paused": false,
-    "paper_trading": true,
+    "paper_trading": false,
     "scan_interval": 10,
     "max_trades_allowed": 1,
     "min_profit_margin": 0.01,
     "max_trade_usdc": 1.2,
+    "max_days_until_resolution": 7,
     "emergency_stop": false
 }

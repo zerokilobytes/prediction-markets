@@ -1,6 +1,6 @@
 {
-    "paused": true,
+    "paused": false,
     "min_profit_margin_override": null,
-    "max_trade_usdc_override": null,
+    "max_trade_usdc_override": 1.2,
     "emergency_stop": false
 }

@@ -41,7 +41,7 @@ def has_traded_before(question):
     return any(trade['question'] == question for trade in history)
 
 def log_trade_json(market_data, total_sum, y_p, n_p, final_shares):
-    """Logs detailed trade data including the final adjusted share count."""
+    """Logs detailed trade data."""
     history = get_trade_history()
     new_entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -77,7 +77,7 @@ def get_active_markets(max_days):
     params = {"active": "true", "closed": "false", "limit": 200, "order": "volume_24hr"}
     valid_markets = []
     
-    forbidden_years = ["2027", "2028", "2029", "2030"] # Add years you don't want
+    forbidden_years = ["2027", "2028", "2029", "2030"] 
     now = datetime.now(timezone.utc)
     cutoff_date = now + timedelta(days=max_days)
     
@@ -86,8 +86,6 @@ def get_active_markets(max_days):
         for event in resp:
             for market in event.get("markets", []):
                 title = market.get("groupItemTitle") or event.get("title") or ""
-                
-                # NEW: Keyword block for long-term years
                 if any(year in title for year in forbidden_years):
                     continue
 
@@ -108,33 +106,23 @@ def get_active_markets(max_days):
                             })
                 except ValueError: continue
         return valid_markets
-    except Exception as e:
+    except Exception:
         return []
 
 def execute_trade(client, token_id, share_count, is_paper):
-    """Executes trade with a $1.05 USDC minimum floor for cheap shares."""
-    if is_paper: return {"success": True, "final_shares": share_count}
+    """Executes trade for exactly the whole share count requested."""
+    if is_paper: return {"success": True}
     
     try:
-        price_data = client.get_price(token_id, side="BUY")
-        current_price = float(price_data['price'])
-        
-        # Polymarket usually requires ~$1.00 minimum order. 
-        # If price is $0.05 and count is 1, cost is $0.05 (too low).
-        actual_shares = share_count
-        if (current_price * share_count) < 1.05:
-            actual_shares = round(1.05 / current_price, 2)
-            print(f"⚖️ Price {current_price} too low. Boosting to {actual_shares} shares for minimum order.")
-
         order_args = OrderArgs(
             token_id=token_id,
-            price=0.99, # Safety cap
+            price=0.99, 
             side="BUY",
-            size=float(actual_shares)
+            size=float(share_count)
         )
         signed_order = client.create_order(order_args)
         resp = client.post_order(signed_order)
-        return {"success": True, "final_shares": actual_shares} if resp.get("success") else None
+        return {"success": True} if resp.get("success") else None
     except Exception as e:
         print(f"🚨 Trade Error: {e}")
         return None
@@ -142,7 +130,7 @@ def execute_trade(client, token_id, share_count, is_paper):
 def run_bot():
     global trades_completed
     client = get_authenticated_client()
-    print(f"--- 🚀 Arb Bot Active (Floor Logic Enabled) ---")
+    print(f"--- 🚀 Whole-Share Arb Bot Active ---")
     
     while True:
         config = check_config()
@@ -172,6 +160,12 @@ def run_bot():
                 total = y_p + n_p
 
                 if total < (1.0 - config.get("min_profit_margin")):
+                    # MINIMUM COST FILTER
+                    # Polymarket requires ~$1.00 USD per order.
+                    # If buying 'share_target' costs less than $1.05, we skip to keep whole numbers.
+                    if (y_p * share_target) < 1.05 or (n_p * share_target) < 1.05:
+                        continue
+
                     print(f"💰 ARB FOUND: {total:.3f} | {m['question']}")
                     
                     res_y = execute_trade(client, m['yes_id'], share_target, is_paper)
@@ -179,10 +173,8 @@ def run_bot():
                     
                     if res_y and res_n:
                         trades_completed += 1
-                        # Log using the highest share count used between both sides
-                        final_q = max(res_y['final_shares'], res_n['final_shares'])
-                        log_trade_json(m, total, y_p, n_p, final_q)
-                        print(f"✅ Trade {trades_completed} logged ({final_q} shares).")
+                        log_trade_json(m, total, y_p, n_p, share_target)
+                        print(f"✅ Trade {trades_completed} logged ({share_target} whole shares).")
             except Exception: continue
             
         time.sleep(config.get("scan_interval"))

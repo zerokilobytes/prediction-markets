@@ -26,3 +26,6 @@ env.sh
 src/service/__pycache__/
 
 data/
+
+
+arbitrage-bot-trades.json

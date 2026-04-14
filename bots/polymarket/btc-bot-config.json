@@ -1,6 +1,6 @@
 {
     "max_trades_allowed": 1,
-    "target_spend_usd": 1.10,
-    "min_profit_gap": 0.05,
-    "paper_trading": true
+    "target_spend_usd": 1.05,
+    "max_buy_price": 0.15,
+    "paper_trading": false
 }
